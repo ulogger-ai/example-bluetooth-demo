@@ -1,0 +1,2 @@
+bleak
+ulogger-cloud==0.2.5

@@ -1,0 +1,11 @@
+{
+    "customer_id": 12345,
+    "application_id": 12345,
+    "device_type": "uLogger_bt_example",
+    "version": "1.0.0",
+    "git_hash": "no_cache",
+    "branch": "main",
+    "file": "GNU ARM v12.2.1/example-bt-demo.axf",
+    "cert_path": "certificate.pem.crt",
+    "key_path": "private.pem.key"
+}
