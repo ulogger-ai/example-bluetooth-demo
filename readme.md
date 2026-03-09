@@ -112,3 +112,21 @@ Build the Simplicity Studio project and flash it to your device. Once the device
 ```bash
 python bluetooth.py
 ```
+
+## Exploring the web platform
+Now that you have successfully published logs into uLogger Cloud, lets review how to view those.
+
+1. Click on the Hard Faults on the left navigation panel. You should see at least hard fault in the list.
+2. Click on the error summary text to expand entry. You should see the full stack trace, hard fault status registers and general registers.
+
+Let's move on to see more detailed logging.
+1. Click on the Debug Logs on the left navigation. You should see at least one error message in the list. Click error text to expand the log message.
+2. Click on the device address of your specific device to open the log history for that specific device. You should now see several logs captured prior to the error message and hard-fault.
+
+### Fix with AI
+If you forked this repo and provide your github settings, you can send this context to your AI coding agent to analyze and create a pull request to fix for you. Even if you haven't configured your github settings, you can still follow the steps even though the pull request won't get generated.
+1. Hold shift and click on the first log that you want to be included in the context and then the last log. This selects the range of interest if you don't want to send all logs as part of the context.
+2. Click the Fix with AI button in the top right corner. This will display a new modal with your selected log context and the option to provide additional user context if desired.
+3. Click submit to create the issue for the AI tools to analyze and fix.
+
+There is more to explore in the web platform, but that is all that is covered in this demo. Check some of our other demos and videos to learn more!
