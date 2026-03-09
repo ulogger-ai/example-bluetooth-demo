@@ -113,6 +113,9 @@ Build the Simplicity Studio project and flash it to your device. Once the device
 python bluetooth.py
 ```
 
+## 8. Generate Logs
+Follow the log instructions that are displayed via the debug output in the console ITM channel. You can generate logs and a hard fault by pressing BUTTON0.
+
 ## Exploring the web platform
 Now that you have successfully published logs into uLogger Cloud, lets review how to view those.
 
