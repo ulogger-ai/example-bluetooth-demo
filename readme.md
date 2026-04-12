@@ -76,7 +76,7 @@ Open `bt_example.json` and update the `customer_id` and `application_id` to matc
 ## 5. Install Python Dependencies
 
 ```bash
-pip install -r requirements.txt --extra-index-url https://pyulogger.s3.us-east-1.amazonaws.com/simple/
+pip install -r requirements.txt
 ```
 
 ---

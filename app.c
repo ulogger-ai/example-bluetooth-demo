@@ -36,6 +36,7 @@
 #include "ulogger.h"
 #include "git_config.h"
 #include "ble_transfer.h"
+#include "sl_sleeptimer.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -92,6 +93,11 @@ static mem_ctl_block_t ulogger_mem_ctl_blocks[] = {
 #define PRETRIG_BUF_SIZE 300
 static uint8_t pretrigger_buf[PRETRIG_BUF_SIZE];
 
+static uint32_t get_tick_rtc(void)
+{
+  return sl_sleeptimer_get_tick_count();
+}
+
 static ulogger_config_t config = {
     .fault_reboot_cb = fault_reboot,
     .stack_top_address_cb = get_stack_top,
@@ -104,6 +110,9 @@ static ulogger_config_t config = {
     .pretrigger_log_count = 5,
     .pretrigger_buffer = pretrigger_buf,
     .pretrigger_buffer_size = PRETRIG_BUF_SIZE,
+
+    .get_tick = get_tick_rtc,
+    .tick_rate_hz = 32768,          // Sleeptimer RTC at 32.768 kHz
 
     // Crash dump header metadata
     .application_id = APPLICATION_ID,

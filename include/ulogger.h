@@ -67,7 +67,11 @@ typedef struct {
     uint16_t pretrigger_log_count; // Number of pretrigger logs to keep in buffer
     uint8_t *pretrigger_buffer;  // Pointer to pretrigger buffer (user-allocated)
     uint16_t pretrigger_buffer_size; // Size of pretrigger buffer in bytes
-    
+
+    // Timestamp configuration
+    uint32_t (*get_tick)(void);    // User-provided callback returning current tick count (raw hardware ticks)
+    uint32_t tick_rate_hz;         // Tick rate in Hz (e.g. 32768 for a 32.768 kHz RTC)
+
     // Crash dump header metadata
     uint32_t application_id;        // Application identifier
     const char *git_hash;           // Git commit hash (max 40 chars)
