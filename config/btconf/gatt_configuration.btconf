@@ -111,5 +111,14 @@
         <notify authenticated="false" bonded="false" encrypted="false"/>
       </properties>
     </characteristic>
+
+    <!--log_config: written by the Python host to push a log configuration change-->
+    <characteristic const="false" id="log_config" name="log_config" sourceId="" uuid="5828e769-1420-4363-ab28-04037d9ff755">
+      <value length="9" type="hex" variable_length="false">000000000000000000</value>
+      <properties>
+        <write authenticated="false" bonded="false" encrypted="false"/>
+        <write_no_response authenticated="false" bonded="false" encrypted="false"/>
+      </properties>
+    </characteristic>
   </service>
 </gatt>

@@ -54,6 +54,20 @@ void init_flash(void);
 // Timer handle for periodic transfer polling
 static app_timer_t my_timer;
 
+// ---------------------------------------------------------------------------
+// Log config: saved defaults and revert timer
+// ---------------------------------------------------------------------------
+static ulogger_flags_level_t saved_default_flags_level;
+static app_timer_t config_revert_timer;
+
+static void config_revert_callback(app_timer_t *handle, void *data)
+{
+  (void)handle;
+  (void)data;
+  log_local("Log config timeout expired -- reverting to default\r\n");
+  ulogger_set_flags_level(&saved_default_flags_level);
+}
+
 // The advertising set handle allocated from Bluetooth stack.
 static uint8_t advertising_set_handle = 0xff;
 
@@ -148,6 +162,9 @@ SL_WEAK void app_init(void)
            address.addr[2], address.addr[1], address.addr[0]);
   config.device_serial = (const char *)&device_serial;
   ulogger_init(&config);
+
+  // Snapshot defaults before any cloud config can override them
+  saved_default_flags_level = config.flags_level;
 
   init_button_led();
   /////////////////////////////////////////////////////////////////////////////
@@ -253,6 +270,29 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
         uint16_t ack_offset = (uint16_t)av->value.data[0]
                             | ((uint16_t)av->value.data[1] << 8);
         ble_transfer_handle_ack(ack_offset);
+      }
+      // Log config pushed from the Python host (9-byte binary header)
+      // Byte 0:   log_level     (uint8)  0=DEBUG 1=INFO 2=WARNING 3=ERROR 4=CRITICAL
+      // Bytes 1-4: module_flags (uint32 little-endian)
+      // Bytes 5-8: timeout_secs (uint32 little-endian)
+      if (av->attribute == gattdb_log_config && av->value.len >= 9) {
+        const uint8_t *buf = av->value.data;
+        uint8_t  level_byte      = buf[0];
+        uint32_t new_flags       = (uint32_t)buf[1]
+                                 | ((uint32_t)buf[2] << 8)
+                                 | ((uint32_t)buf[3] << 16)
+                                 | ((uint32_t)buf[4] << 24);
+        uint32_t timeout_seconds = (uint32_t)buf[5]
+                                 | ((uint32_t)buf[6] << 8)
+                                 | ((uint32_t)buf[7] << 16)
+                                 | ((uint32_t)buf[8] << 24);
+        log_local("Log config received: level=%u flags=0x%08lX timeout=%lus\r\n",
+                  level_byte, new_flags, timeout_seconds);
+        ulogger_flags_level_t new_cfg = { .flags = new_flags, .level = level_byte };
+        ulogger_set_flags_level(&new_cfg);
+        app_timer_stop(&config_revert_timer);
+        app_timer_start(&config_revert_timer, timeout_seconds * 1000U,
+                        config_revert_callback, NULL, false);
       }
       break;
     }

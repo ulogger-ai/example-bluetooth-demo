@@ -14,6 +14,7 @@ import sys
 import asyncio
 import logging
 import struct
+import threading
 import time
 import json
 from pathlib import Path
@@ -22,10 +23,12 @@ from typing import Optional
 from bleak import BleakClient, BleakScanner
 from ulogger_cloud import (
     DeviceInfo,
+    LogConfig,
     MqttConfig,
     SessionStore,
     upload_log,
     publish_core_dump,
+    subscribe_log_config_loop,
 )
 
 log = logging.getLogger(__name__)
@@ -59,6 +62,9 @@ NOTIFY_UUID  = "1828e769-1420-4363-ab28-04037d9ff755"  # log_data (notify)
 ACK_UUID     = "3828e769-1420-4363-ab28-04037d9ff755"  # log_ack  (write)
 COREDUMP_UUID = "15b0fba5-59f9-4f25-bbd4-dd70ba04c6da" # core_dump_data (notify)
 CONFIG_UUID  = "3ad8119d-8f9d-4297-9302-aa56f2283a72"  # config   (read)
+LOG_CONFIG_UUID = "5828e769-1420-4363-ab28-04037d9ff755"  # log_config (write)
+
+_LOG_LEVEL_TO_BYTE = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 
 SCAN_DURATION = 2.0  # seconds
 
@@ -232,6 +238,56 @@ class BleSession:
         return handler
 
 
+# Log config relay
+# ---------------------------------------------------------------------------
+
+async def _config_listener_coro(device_info: DeviceInfo, session: "BleSession") -> None:
+    """MQTT log-config subscriber — stays connected and calls
+    _send_config_to_device for every config message that arrives.
+    Runs until cancelled (e.g. on BLE disconnect).
+    """
+    stop_event = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    def _on_config(log_config: LogConfig) -> None:
+        log.info("Cloud log-config received: level=%s flags=0x%08X modules=%s timeout=%ds",
+                 log_config.log_level, log_config.module_flags,
+                 log_config.log_modules, log_config.timeout_seconds)
+        asyncio.run_coroutine_threadsafe(_send_config_to_device(session, log_config), loop)
+
+    log.info("MQTT log-config listener started — topic: config/v0/%s/%s/%s",
+             MQTT_CFG.customer_id, device_info.application_id, device_info.device_serial)
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: subscribe_log_config_loop(device_info, MQTT_CFG, _on_config, stop_event),
+        )
+    except asyncio.CancelledError:
+        log.info("Log-config listener cancelled (BLE session ended).")
+        raise
+    except Exception as exc:
+        log.warning("Log config subscription error: %s", exc)
+    finally:
+        stop_event.set()  # unblock the background thread if still waiting
+
+
+async def _send_config_to_device(session: "BleSession", log_config: LogConfig) -> None:
+    """Write the 9-byte binary config header to the log_config BLE characteristic."""
+    if session.client is None or not session.client.is_connected:
+        log.warning("BLE disconnected before log-config could be sent")
+        return
+    level_byte = _LOG_LEVEL_TO_BYTE.get(log_config.log_level.upper(), 1)
+    payload = struct.pack("<BII", level_byte,
+                          log_config.module_flags & 0xFFFFFFFF,
+                          log_config.timeout_seconds & 0xFFFFFFFF)
+    try:
+        await session.client.write_gatt_char(LOG_CONFIG_UUID, payload, response=False)
+        log.info("Log config sent to device: level=%s flags=0x%08X timeout=%ds",
+                 log_config.log_level, log_config.module_flags, log_config.timeout_seconds)
+    except Exception as exc:
+        log.warning("Failed to write log config to device: %s", exc)
+
+
 # ---------------------------------------------------------------------------
 # Scan helpers
 # ---------------------------------------------------------------------------
@@ -289,6 +345,7 @@ async def _connect_and_transfer(device_addr: str) -> bool:
     session.loop = asyncio.get_running_loop()
     session.packet_event = asyncio.Event()
     session.disconnected_event = asyncio.Event()
+    config_task: Optional[asyncio.Task] = None
 
     def _on_disconnect(client: BleakClient) -> None:
         log.warning("Device disconnected")
@@ -298,14 +355,30 @@ async def _connect_and_transfer(device_addr: str) -> bool:
                 session.loop.call_soon_threadsafe(session.packet_event.set)
 
     try:
-        async with BleakClient(device_addr, disconnected_callback=_on_disconnect) as client:
+        async with BleakClient(
+            device_addr,
+            disconnected_callback=_on_disconnect,
+            # Force a fresh GATT service discovery on Windows — the OS caches
+            # the service/characteristic list and won't show characteristics
+            # added in newer firmware without this flag.
+            winrt={"use_cached_services": False},
+        ) as client:
             session.client = client
             log.info("Connected: %s", client.is_connected)
+
+            # Dump all discovered services/characteristics to help diagnose cache issues
+            log.info("Discovered GATT services:")
+            for svc in client.services:
+                log.info("  Service %s", svc.uuid)
+                for char in svc.characteristics:
+                    log.info("    Char %s  props=%s", char.uuid, char.properties)
 
             # Read device identification before starting the log transfer
             device_info = await read_device_info(client)
             if device_info:
                 log.info("Device info: %s", device_info)
+                # Start MQTT config listener immediately — runs concurrently with transfer
+                config_task = asyncio.create_task(_config_listener_coro(device_info, session))
             else:
                 log.warning("Device info unavailable, continuing anyway")
 
@@ -395,6 +468,10 @@ async def _connect_and_transfer(device_addr: str) -> bool:
                           session.transfer.expected, session.transfer.total_len)
                 return False
 
+            # The config listener task runs in the background and sends configs
+            # to the device as they arrive.  It is cancelled in the finally block
+            # when the BLE session ends.
+
             log.info("All done, disconnecting...")
             return True
 
@@ -402,6 +479,8 @@ async def _connect_and_transfer(device_addr: str) -> bool:
         log.warning("Connection error: %s", exc)
         return False
     finally:
+        if config_task is not None and not config_task.done():
+            config_task.cancel()
         session.client = None
         session.loop = None
         session.packet_event = None
