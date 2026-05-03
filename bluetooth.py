@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from bleak import BleakClient, BleakScanner
+from bleak.exc import BleakBluetoothNotAvailableError
 from ulogger_cloud import (
     DeviceInfo,
     LogConfig,
@@ -66,6 +67,7 @@ LOG_CONFIG_UUID = "5828e769-1420-4363-ab28-04037d9ff755"  # log_config (write)
 
 _LOG_LEVEL_TO_BYTE = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 
+TARGET_DEVICE_NAME = "uLogger Example"
 SCAN_DURATION = 2.0  # seconds
 
 # ---------------------------------------------------------------------------
@@ -295,7 +297,13 @@ async def _send_config_to_device(session: "BleSession", log_config: LogConfig) -
 async def scan_for_devices() -> bool:
     """Scan for all nearby BLE devices and return True if the target is found."""
     log.info("Scanning for BLE devices for %.1f seconds...", SCAN_DURATION)
-    devices = await BleakScanner.discover(timeout=SCAN_DURATION, return_adv=True)
+    try:
+        devices = await BleakScanner.discover(timeout=SCAN_DURATION, return_adv=True)
+    except BleakBluetoothNotAvailableError:
+        log.warning("Bluetooth adapter not available. "
+                    "Try toggling Bluetooth off/on in Windows Settings "
+                    "or re-enabling the adapter in Device Manager.")
+        return False, ""
 
     if not devices:
         log.warning("No BLE devices found. Check that Bluetooth is enabled.")
@@ -304,10 +312,11 @@ async def scan_for_devices() -> bool:
     log.info("Found %d device(s):", len(devices))
     target_found = False
     target_addr = ""
+    target_label = DEVICE_ADDR if DEVICE_ADDR else TARGET_DEVICE_NAME
     for addr, (device, adv) in devices.items():
         name      = device.name or "(unknown)"
         rssi      = adv.rssi
-        is_target = device.name == "uLogger Example" or addr.upper() == DEVICE_ADDR.upper()
+        is_target = device.name == TARGET_DEVICE_NAME or (DEVICE_ADDR and addr.upper() == DEVICE_ADDR.upper())
         marker    = " <-- TARGET" if is_target else ""
         log.info("  %s  RSSI: %4d dBm  Name: %s%s", addr, rssi, name, marker)
         if is_target:
@@ -315,9 +324,9 @@ async def scan_for_devices() -> bool:
             target_addr = addr
 
     if not target_found:
-        log.warning("Target device %r was NOT found in the scan.", DEVICE_ADDR)
+        log.warning("Target device %r was NOT found in the scan.", target_label)
     else:
-        log.info("Target device %r found, connecting...", DEVICE_ADDR)
+        log.info("Target device %r found, connecting...", target_label)
     return target_found, target_addr
 
 

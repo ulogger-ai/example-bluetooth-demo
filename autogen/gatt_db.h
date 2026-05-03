@@ -24,8 +24,9 @@ extern const sli_bt_gattdb_t gattdb;
 #define gattdb_log_ack                        30
 #define gattdb_core_dump_data                 32
 #define gattdb_config                         35
-#define gattdb_ota                            37
-#define gattdb_ota_control                    39
+#define gattdb_log_config                     38
+#define gattdb_ota                            39
+#define gattdb_ota_control                    41
 
 
 #endif // __GATT_DB_H

@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "git_hash": "no_cache",
     "branch": "main",
-    "file": "GNU ARM v12.2.1/example-bt-demo.axf",
+    "file": "GNU ARM v12.2.1/example-bluetooth-demo.axf",
     "cert_path": "certificate.pem.crt",
     "key_path": "private.pem.key"
 }

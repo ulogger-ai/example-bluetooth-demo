@@ -1,2 +1,37 @@
+# --- Project Specific ---
+private.pem.key
+certificate.pem.crt
+*.bin
+imported_project_report.html
+ulogger-upload*
+
+# --- IDE Specific ---
+.projectlinkstore        # Exclude absolute local paths
+.pdm/                    # Simplicity Studio internal data
+.uceditor/               # UI configuration files
+.projectchecksums
+
+# --- Shared Settings ---
+# Keep .settings but ignore local workspace overrides
+.settings/
+!.settings/org.eclipse.cdt.core.prefs
+!.settings/org.eclipse.jdt.core.prefs
+
+# --- Build Artifacts ---
+# Ignore common auto-generated build folders
 GNU ARM v12.2.1/
-coredump_*.bin
+[Gg][Nn][Uu]*Default/
+[Ii][Aa][Rr]*Default/
+build/
+bin/
+obj/
+
+# --- Auto-generated SDK Files ---
+# If your project auto-generates these, usually exclude them
+autogen/
+simplicity_sdk*/
+
+# --- OS Specific ---
+.DS_Store                # macOS
+Thumbs.db                # Windows
+

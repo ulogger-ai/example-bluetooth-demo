@@ -16,12 +16,15 @@ This example demonstrates how to integrate uLogger into a Bluetooth Low Energy (
 ## 1. Import the demo example into your worksapce
 
 1. In Simplicity studio, click File->Import
-2. Browse to folder where you checked out the uLogger example-bt-demo
+2. Browse to folder where you checked out the uLogger example-bluetooth-demo
 3. Select the Simplicity Studio (.sls) project and click next
 4. Make Sure the SDK and toolchain text is not showing red. If it is red, that means you'll need to download those packages in the package manager. Click next.
-5. Uncheck the box for `Use default location` and change the location to point the location where you downloaded the repo. It should include the name of the folder itself. An example would be `C:\my-demo-app\example-bt-demo`
+5. Uncheck the box for `Use default location` and change the location to point the location where you downloaded the repo. It should include the name of the folder itself. An example would be `C:\my-demo-app\example-bluetooth-demo`
 6. Click Finish to complete the import.
+7. Expand the project and open the `example-bluetooth-demo.slcp` in the project files.
+8. In the Project Details section, click the `...` in the top right corner and select `Force Generation` to complete the project setup.
 
+![Force Generation](image/project-generation.png)
 
 ---
 
@@ -105,9 +108,12 @@ The `bt_example.json` file in the project root stores the parameters used by the
 Before loading the application, you'll need to flash the bootloader.
 
 1. In the Simplicity Studio Project Explorer window, expand the `bootloader` folder and right click on `bootloader-apploader.hex` and then click `Flash to Device...`
+
+![Force Generation](image/bootloader-flash.png)
+
 2. Click the `Program` button to flash the bootloader
 
-Build the Simplicity Studio project and flash it to your device. Once the device is running, execute the Python script to connect over BLE, download the binary log, and upload it to the uLogger cloud:
+Build the Simplicity Studio project and flash it to your device. Once the device is running, execute the Python script which will connect over BLE, download the binary log, and upload it to the uLogger cloud:
 
 ```bash
 python bluetooth.py
