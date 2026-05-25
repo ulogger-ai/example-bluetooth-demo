@@ -29,6 +29,7 @@ from ulogger_cloud import (
     SessionStore,
     upload_log,
     publish_core_dump,
+    publish_metrics,
     subscribe_log_config_loop,
 )
 
@@ -64,6 +65,7 @@ ACK_UUID     = "3828e769-1420-4363-ab28-04037d9ff755"  # log_ack  (write)
 COREDUMP_UUID = "15b0fba5-59f9-4f25-bbd4-dd70ba04c6da" # core_dump_data (notify)
 CONFIG_UUID  = "3ad8119d-8f9d-4297-9302-aa56f2283a72"  # config   (read)
 LOG_CONFIG_UUID = "5828e769-1420-4363-ab28-04037d9ff755"  # log_config (write)
+RSSI_UUID    = "7828e769-1420-4363-ab28-04037d9ff755"  # rssi      (read, 1 signed byte dBm)
 
 _LOG_LEVEL_TO_BYTE = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 
@@ -294,8 +296,14 @@ async def _send_config_to_device(session: "BleSession", log_config: LogConfig) -
 # Scan helpers
 # ---------------------------------------------------------------------------
 
-async def scan_for_devices() -> bool:
-    """Scan for all nearby BLE devices and return True if the target is found."""
+async def scan_for_devices():
+    """Scan for nearby BLE devices.
+
+    Returns (target_found, target_addr, target_rssi). target_rssi is the
+    advertisement RSSI in dBm captured during the scan, or None if no target
+    was found. BLE advertisements always carry RSSI, so this is reliable
+    across backends (unlike connected-state client.read_rssi()).
+    """
     log.info("Scanning for BLE devices for %.1f seconds...", SCAN_DURATION)
     try:
         devices = await BleakScanner.discover(timeout=SCAN_DURATION, return_adv=True)
@@ -303,15 +311,16 @@ async def scan_for_devices() -> bool:
         log.warning("Bluetooth adapter not available. "
                     "Try toggling Bluetooth off/on in Windows Settings "
                     "or re-enabling the adapter in Device Manager.")
-        return False, ""
+        return False, "", None
 
     if not devices:
         log.warning("No BLE devices found. Check that Bluetooth is enabled.")
-        return False, ""
+        return False, "", None
 
     log.info("Found %d device(s):", len(devices))
     target_found = False
     target_addr = ""
+    target_rssi = None
     target_label = DEVICE_ADDR if DEVICE_ADDR else TARGET_DEVICE_NAME
     for addr, (device, adv) in devices.items():
         name      = device.name or "(unknown)"
@@ -322,30 +331,39 @@ async def scan_for_devices() -> bool:
         if is_target:
             target_found = True
             target_addr = addr
+            target_rssi = rssi
 
     if not target_found:
         log.warning("Target device %r was NOT found in the scan.", target_label)
     else:
         log.info("Target device %r found, connecting...", target_label)
-    return target_found, target_addr
+    return target_found, target_addr, target_rssi
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-async def _scan_until_found() -> str:
-    """Keep scanning until the target device is discovered; return its address."""
+async def _scan_until_found():
+    """Keep scanning until the target device is discovered.
+
+    Returns (addr, rssi) — RSSI is the advertisement RSSI from the scan that
+    found the device, used to publish a fresh signal-strength metric per poll.
+    """
     while True:
-        target_found, device_addr = await scan_for_devices()
+        target_found, device_addr, target_rssi = await scan_for_devices()
         if target_found:
-            return device_addr
+            return device_addr, target_rssi
         log.info("Retrying scan in %.0f seconds...", SCAN_DURATION)
         await asyncio.sleep(SCAN_DURATION)
 
 
-async def _connect_and_transfer(device_addr: str) -> bool:
+async def _connect_and_transfer(device_addr: str, scan_rssi: Optional[int] = None) -> bool:
     """Connect to *device_addr*, transfer logs and core dump, upload to cloud.
+
+    *scan_rssi* is the advertisement RSSI (dBm) from the scan that found the
+    device. When present, it's published as a `rssi` metric alongside the
+    heartbeat, giving the platform a per-poll signal-strength reading.
 
     Returns True if the transfers completed successfully, False if the
     connection was lost before completion (caller should retry).
@@ -375,17 +393,25 @@ async def _connect_and_transfer(device_addr: str) -> bool:
             session.client = client
             log.info("Connected: %s", client.is_connected)
 
-            # Dump all discovered services/characteristics to help diagnose cache issues
-            log.info("Discovered GATT services:")
-            for svc in client.services:
-                log.info("  Service %s", svc.uuid)
-                for char in svc.characteristics:
-                    log.info("    Char %s  props=%s", char.uuid, char.properties)
-
-            # Read device identification before starting the log transfer
+            # Read device identification before starting the log transfer.
+            # A successful CONFIG read is the "poll" that proves the device is
+            # alive and responsive — publish a heartbeat metric on its behalf
+            # so the platform sees it as active. BLE devices don't talk to MQTT
+            # directly, so the gateway publishes here (avoids burning device NV
+            # on a per-minute on-device heartbeat). When a scan-time RSSI is
+            # available, it rides along in the same publish for free.
             device_info = await read_device_info(client)
             if device_info:
                 log.info("Device info: %s", device_info)
+                metrics_payload = [{"name": "heartbeat", "value": 1}]
+                if scan_rssi is not None:
+                    metrics_payload.append({"name": "rssi", "value": scan_rssi})
+                publish_metrics(
+                    device_serial=device_info.device_serial,
+                    app_id=str(device_info.application_id),
+                    metrics=metrics_payload,
+                    cfg=MQTT_CFG,
+                )
                 # Start MQTT config listener immediately — runs concurrently with transfer
                 config_task = asyncio.create_task(_config_listener_coro(device_info, session))
             else:
@@ -419,33 +445,32 @@ async def _connect_and_transfer(device_addr: str) -> bool:
             log.info("Subscribed, sending start trigger to firmware...")
             await session._send_ack(struct.pack("<H", 0))
 
-            # Wait for both transfers to complete.
-            POST_LOG_TIMEOUT = 3.0
+            # Wait for transfers to complete. A NO_DATA_TIMEOUT-second silence
+            # is treated as "no more data coming" — this covers both the
+            # "device had nothing to push" case (no packets ever arrive after
+            # the start trigger) and end-of-stream (firmware stops sending
+            # after the last chunk). The previous design blocked here forever
+            # waiting for the first packet, which prevented the persistent
+            # monitoring loop from ever starting on a device with no pending
+            # logs.
+            NO_DATA_TIMEOUT = 5.0
             while not (session.transfer.is_done() and session.cd_transfer.is_done()):
                 if session.disconnected_event.is_set():
                     log.warning("Connection lost during transfer")
                     return False
 
-                await session.packet_event.wait()
+                try:
+                    await asyncio.wait_for(
+                        session.packet_event.wait(), timeout=NO_DATA_TIMEOUT)
+                except asyncio.TimeoutError:
+                    log.info("No transfer activity for %.0fs - assuming complete",
+                             NO_DATA_TIMEOUT)
+                    break
                 session.packet_event.clear()
 
                 if session.disconnected_event.is_set():
                     log.warning("Connection lost during transfer")
                     return False
-
-                # Once logs are done, give firmware a short window for CD start
-                if (session.transfer.is_done()
-                        and not session.cd_transfer.is_done()
-                        and session.cd_transfer.total_len is None):
-                    try:
-                        await asyncio.wait_for(
-                            session.packet_event.wait(), timeout=POST_LOG_TIMEOUT)
-                        session.packet_event.clear()
-                        if session.disconnected_event.is_set():
-                            log.warning("Connection lost while waiting for core dump")
-                            return False
-                    except asyncio.TimeoutError:
-                        break  # no core dump arrived -- done
 
             if client.is_connected:
                 await client.stop_notify(NOTIFY_UUID)
@@ -472,16 +497,61 @@ async def _connect_and_transfer(device_addr: str) -> bool:
                 OUTPUT_BIN.write_bytes(bytes(session.transfer.buffer))
                 log.info("Binary log saved to %s", OUTPUT_BIN)
                 upload_log(device_info, session.transfer.buffer, MQTT_CFG, SESSION_STORE)
+            elif session.transfer.total_len is None:
+                # Firmware sent no log data after the start trigger — nothing
+                # pending on the device. Not a failure; proceed to monitoring.
+                log.info("No log data pending on device")
             else:
-                log.error("Transfer failed (%d/%s bytes received)",
-                          session.transfer.expected, session.transfer.total_len)
-                return False
+                # Transfer started but stalled before completing.
+                log.warning("Transfer incomplete (%d/%s bytes received) - skipping upload",
+                            session.transfer.expected, session.transfer.total_len)
 
             # The config listener task runs in the background and sends configs
             # to the device as they arrive.  It is cancelled in the finally block
             # when the BLE session ends.
 
-            log.info("All done, disconnecting...")
+            # --- Persistent monitoring loop ---
+            # Hold the BLE connection open and publish a heartbeat every 60s.
+            # RSSI comes from a dedicated GATT characteristic that the firmware
+            # refreshes from its own end of the link (the firmware stops
+            # advertising once connected, so scan-based RSSI doesn't work
+            # mid-session). Reading the characteristic is a sub-100ms GATT op.
+            HEARTBEAT_INTERVAL_SECONDS = 60.0
+            log.info("Entering persistent monitoring (heartbeat every %.0fs)...",
+                     HEARTBEAT_INTERVAL_SECONDS)
+            while client.is_connected and not session.disconnected_event.is_set():
+                try:
+                    # Wait one interval, or wake immediately on disconnect.
+                    await asyncio.wait_for(
+                        session.disconnected_event.wait(),
+                        timeout=HEARTBEAT_INTERVAL_SECONDS,
+                    )
+                    break  # disconnect_event fired - exit monitoring
+                except asyncio.TimeoutError:
+                    pass  # normal interval tick
+
+                rssi: Optional[int] = None
+                try:
+                    rssi_bytes = await client.read_gatt_char(RSSI_UUID)
+                    if len(rssi_bytes) >= 1:
+                        rssi = struct.unpack("<b", bytes(rssi_bytes[:1]))[0]
+                except Exception as exc:
+                    log.warning("RSSI read failed (publishing heartbeat only): %s", exc)
+
+                if device_info is not None:
+                    metrics_payload = [{"name": "heartbeat", "value": 1}]
+                    if rssi is not None:
+                        metrics_payload.append({"name": "rssi", "value": rssi})
+                    publish_metrics(
+                        device_serial=device_info.device_serial,
+                        app_id=str(device_info.application_id),
+                        metrics=metrics_payload,
+                        cfg=MQTT_CFG,
+                    )
+                    log.info("Heartbeat published (rssi=%s dBm)",
+                             rssi if rssi is not None else "n/a")
+
+            log.info("Device disconnected, ending session.")
             return True
 
     except (OSError, asyncio.TimeoutError) as exc:
@@ -496,12 +566,20 @@ async def _connect_and_transfer(device_addr: str) -> bool:
 
 
 async def run():
+    """Maintain a persistent BLE session with the target device.
+
+    Each cycle: scan to locate the device, open a long-lived BLE connection
+    that transfers any pending logs and then publishes a heartbeat metric
+    (plus connected-state RSSI) every minute until the device disconnects.
+    On disconnect, the loop scans + reconnects. Runs forever — Ctrl-C to stop.
+    """
     while True:
-        device_addr = await _scan_until_found()
-        success = await _connect_and_transfer(device_addr)
-        if success:
-            break
-        log.info("Reconnecting in %.0f seconds...", SCAN_DURATION)
+        try:
+            device_addr, scan_rssi = await _scan_until_found()
+            await _connect_and_transfer(device_addr, scan_rssi)
+        except Exception as exc:
+            log.warning("Session failed: %s", exc)
+        log.info("Reconnecting in %.0fs...", SCAN_DURATION)
         await asyncio.sleep(SCAN_DURATION)
 
 

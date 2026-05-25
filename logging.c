@@ -13,7 +13,8 @@ const char *DEBUG_ERROR_STR[] = {
     "INFO",
     "WARNING",
     "ERROR",
-    "CRITICAL"
+    "CRITICAL",
+    "METRIC"
 };
 
 void debug_putstr(const char *buf);
@@ -38,8 +39,13 @@ void log_vlocal(uint32_t module, uint8_t level, const char *format, va_list args
   vsnprintf(buffer, sizeof(buffer), format, args);
 
   if (level < ULOG_INVALID) {
+    uint32_t idx = __builtin_ctz(module);
     debug_putstr("(");
-    debug_putstr(ulogger_debug_modules[__builtin_ctz(module)].name);
+    if (idx < ulogger_debug_modules_count) {
+      debug_putstr(ulogger_debug_modules[idx].name);
+    } else {
+      debug_putstr("SYSTEM");
+    }
     debug_putstr(") - ");
     debug_putstr(DEBUG_ERROR_STR[level]);
     debug_putstr(" - ");

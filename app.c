@@ -298,6 +298,20 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
     }
 
     // -------------------------------
+    // RSSI sample from the BT stack (in response to sl_bt_connection_get_rssi).
+    // Write the latest value into the rssi GATT attribute so the host always
+    // reads a fresh sample.
+    case sl_bt_evt_connection_rssi_id: {
+      sl_bt_evt_connection_rssi_t *rssi_evt = &evt->data.evt_connection_rssi;
+      if (rssi_evt->status == 0) {
+        int8_t rssi = rssi_evt->rssi;
+        sl_bt_gatt_server_write_attribute_value(
+            gattdb_rssi, 0, sizeof(rssi), (const uint8_t *)&rssi);
+      }
+      break;
+    }
+
+    // -------------------------------
     // Default event handler.
     default:
       break;
@@ -349,11 +363,22 @@ static void populate_config_characteristic(const bd_addr *address)
     sl_bt_gatt_server_write_attribute_value(gattdb_config, 0, pos, buf);
 }
 
-// Timer callback — delegates to the BLE transfer module.
+// Timer callback — delegates to the BLE transfer module and, when there's
+// an active connection, kicks off an asynchronous RSSI read. The actual
+// RSSI value arrives later via sl_bt_evt_connection_rssi_id, where it's
+// written into the rssi GATT attribute for the host to read on demand.
 void my_timer_callback(app_timer_t *handle, void *data) {
   (void)handle;
   (void)data;
   ble_transfer_timer_tick();
+
+  uint8_t conn = ble_transfer_get_connection_handle();
+  if (conn != 0xff) {
+    // Async — value lands as sl_bt_evt_connection_rssi_id.
+    // Ignore the return status; transient failures just mean the GATT
+    // attribute keeps its previous value until the next tick.
+    (void)sl_bt_connection_get_rssi(conn);
+  }
 }
 
 const void *get_stack_top(ulogger_stack_type_t stack_type) {

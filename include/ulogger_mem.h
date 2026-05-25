@@ -32,6 +32,7 @@ extern "C" {
 typedef enum {
   ULOGGER_MEM_TYPE_DEBUG_LOG = 0,  /**< Memory region for debug log storage */
   ULOGGER_MEM_TYPE_STACK_TRACE,    /**< Memory region for stack trace/crash dump storage */
+  ULOGGER_MEM_TYPE_OTA_PATCH,      /**< Memory region for OTA patch storage */
   ULOGGER_MEM_TYPE_END             /**< Sentinel value for memory type bounds checking */
 } mem_type_t;
 
@@ -121,6 +122,13 @@ bool Mem_erase(mem_type_t type, uint32_t offset, uint32_t len);
  * associated with the specified memory type.
  */
 bool Mem_erase_all(mem_type_t type);
+
+/**
+ * @brief Get the total size of a memory region
+ * @param type Memory type to query
+ * @return Size in bytes of the region, or 0 if the type is not configured
+ */
+uint32_t Mem_get_size(mem_type_t type);
 
 #ifdef __cplusplus
 }

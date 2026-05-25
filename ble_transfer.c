@@ -82,6 +82,10 @@ void ble_transfer_on_connection_closed(void) {
   cd_transfer_offset       = 0;
 }
 
+uint8_t ble_transfer_get_connection_handle(void) {
+  return active_connection_handle;
+}
+
 void ble_transfer_handle_ack(uint16_t ack_offset) {
   if (!transfer_in_progress && !cd_transfer_in_progress && ack_offset == 0) {
     // Host is ready — send logs first, then core dump.

@@ -49,4 +49,12 @@ void ble_transfer_handle_ack(uint16_t ack_offset);
  *****************************************************************************/
 void ble_transfer_timer_tick(void);
 
+/**************************************************************************//**
+ * Return the currently-active BLE connection handle, or 0xff if none.
+ *
+ * Used by the application layer for connection-scoped operations like
+ * sl_bt_connection_get_rssi(), without exposing the static directly.
+ *****************************************************************************/
+uint8_t ble_transfer_get_connection_handle(void);
+
 #endif // BLE_TRANSFER_H

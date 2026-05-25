@@ -46,6 +46,7 @@ void test_func_1(void);
 
 static app_timer_t led_timer;
 static app_timer_t debounce_timer;
+static uint32_t button_press_count = 0;
 
 
 void init_button_led(void) {
@@ -84,6 +85,8 @@ void debounce_callback(app_timer_t *handle, void *data) {
   (void)handle;
   (void)data;
   if (GPIO_PinInGet(BUTTON_PORT, BUTTON_PIN) == 0) {
+    button_press_count++;
+    ULOGGER_METRIC("button_presses", u, button_press_count);
     ulogger_log(MAIN_MODULE, ULOG_INFO, "button event");
     generate_test_logs();
     test_func_1();

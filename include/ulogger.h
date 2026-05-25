@@ -35,7 +35,8 @@ enum ULOGGER_DEBUG_LEVEL {
     ULOG_WARNING,        // Warning conditions
     ULOG_ERROR,          // Error conditions
     ULOG_CRITICAL,       // Critical failures
-    ULOG_INVALID = 5     // Invalid/unused level
+    ULOG_METRIC,         // Metric data (always persisted to NV)
+    ULOG_INVALID         // Invalid/unused level
 };
 
 // ============================================================================
@@ -71,7 +72,7 @@ typedef struct {
     // Timestamp configuration
     uint32_t (*get_tick)(void);    // User-provided callback returning current tick count (raw hardware ticks)
     uint32_t tick_rate_hz;         // Tick rate in Hz (e.g. 32768 for a 32.768 kHz RTC)
-
+    
     // Crash dump header metadata
     uint32_t application_id;        // Application identifier
     const char *git_hash;           // Git commit hash (max 40 chars)
@@ -123,10 +124,10 @@ void ulogger_clear_nv_logs(void);
 
 /**
  * @brief Get current non-volatile log buffer usage in bytes
- * @return Total bytes needed for transmission (13-byte header + log data), or 0 if no logs
+ * @return Total bytes needed for transmission (17-byte header + log data), or 0 if no logs
  * 
  * @note This function returns the total size required for buffer allocation when using
- *       ulogger_read_nv_logs_with_header(). The returned size includes both the 13-byte
+ *       ulogger_read_nv_logs_with_header(). The returned size includes both the 17-byte
  *       header and the actual log data.
  */
 uint32_t ulogger_get_nv_log_usage(void);
@@ -138,9 +139,9 @@ uint32_t ulogger_get_nv_log_usage(void);
 uint32_t ulogger_get_core_dump_size(void);
 
 /**
- * @brief Read NV logs with 13-byte header prepended, with support for chunked reads
+ * @brief Read NV logs with 17-byte header prepended, with support for chunked reads
  * 
- * The complete output is a logical stream composed of a 13-byte header followed by
+ * The complete output is a logical stream composed of a 17-byte header followed by
  * the raw NV log data. Applications that cannot hold the entire stream in RAM can
  * call this function repeatedly, advancing read_offset by the number of bytes
  * returned each time, until 0 is returned.
@@ -148,7 +149,7 @@ uint32_t ulogger_get_core_dump_size(void);
  * @param dest         Destination buffer to write into
  * @param max_bytes    Maximum bytes to write to dest
  * @param session_token Session identifier included in the header (only relevant when
- *                     read_offset < 13, i.e. the header is being read)
+ *                     read_offset < 17, i.e. the header is being read)
  * @param read_offset  Byte offset into the logical stream [header | log data] to start
  *                     reading from. Pass 0 on the first call.
  * @return Number of bytes written to dest, or 0 if no logs available or read_offset
@@ -239,6 +240,40 @@ void register_local_log_callback(void (*callback)(uint32_t debug_module, uint8_t
  * @note This function does not return.
  */
 void ulogger_assert_fail(const char *file, int line);
+
+// ============================================================================
+// Metric API
+// ============================================================================
+
+/**
+ * @brief Record a named metric value.
+ *
+ * @param name   Metric name string (no spaces, no '=')
+ * @param value  Numeric value; any arithmetic type is accepted
+ *
+ * Example:
+ * @code
+ *   ULOGGER_METRIC("battery_mv", battery_mv);
+ */
+/**
+ * @brief Record a named metric value.
+ *
+ * @param name   Metric name string (no spaces, no '=')
+ * @param type   f = float/double,  i = signed integer,  u = unsigned integer
+ * @param value  The metric value expression
+ *
+ * Example:
+ * @code
+ *   ULOGGER_METRIC("battery_mv", f, voltage);
+ *   ULOGGER_METRIC("rssi",       i, rssi_dbm);
+ *   ULOGGER_METRIC("packets_rx", u, rx_count);
+ * @endcode
+ */
+void ulogger_metric_f(const char *name, double value);
+void ulogger_metric_i(const char *name, int32_t value);
+void ulogger_metric_u(const char *name, uint32_t value);
+
+#define ULOGGER_METRIC(name, type, value)  ulogger_metric_##type((name), (value))
 
 /**
  * @brief Assert macro that logs file/line and captures a core dump on failure
