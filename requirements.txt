@@ -1,2 +1,2 @@
 bleak
-ulogger-cloud==1.2.0
+ulogger-cloud==1.2.1
