@@ -120,5 +120,15 @@
         <write_no_response authenticated="false" bonded="false" encrypted="false"/>
       </properties>
     </characteristic>
+
+    <!--rssi: 1-byte signed (int8) RSSI in dBm of the connected central.
+        Firmware refreshes this attribute periodically via the BT stack's
+        connection_get_rssi command; host reads on demand.-->
+    <characteristic const="false" id="rssi" name="rssi" sourceId="" uuid="7828e769-1420-4363-ab28-04037d9ff755">
+      <value length="1" type="hex" variable_length="false">00</value>
+      <properties>
+        <read authenticated="false" bonded="false" encrypted="false"/>
+      </properties>
+    </characteristic>
   </service>
 </gatt>
