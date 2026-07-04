@@ -72,7 +72,7 @@ Open `button_led.c` and update the board define to match your hardware:
 
 ### Set Your Customer ID
 
-Open `bt_example.json` and update the `customer_id` and `application_id` to match the values that you recorded in steps 3 and 4.
+Open `bt_example.json` and update the `customer_id` and `application_id` to match the values that you recorded in steps 3 and 4. If your account uses groups, also set `group_id` to the group your device belongs to (use `0` if you are not using groups) — `bluetooth.py` reads this value to build the MQTT topics.
 
 ---
 
@@ -92,11 +92,12 @@ The `.axf` file contains the debug symbols needed to decompress binary logs on t
 
 ### Post-build configuration file (`bt_example.json`)
 
-The `bt_example.json` file in the project root stores the parameters used by the symbol-upload post-build step. The upload client reads this file so you do not have to pass every flag on the command line. Update the `customer_id` and `application_id` fields in this file to match the values from your uLogger cloud account:
+The `bt_example.json` file in the project root stores the parameters used by the symbol-upload post-build step, and is also read by `bluetooth.py` to configure MQTT. The upload client reads this file so you do not have to pass every flag on the command line. Update the `customer_id`, `group_id`, and `application_id` fields in this file to match the values from your uLogger cloud account:
 
 ```json
 {
     "customer_id": <your_customer_id>,
+    "group_id": <your_group_id>,
     "application_id": <your_application_id>,
     ...
 }

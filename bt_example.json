@@ -1,5 +1,6 @@
 {
     "customer_id": 12345,
+    "group_id": 0,
     "application_id": 12345,
     "device_type": "uLogger_bt_example",
     "version": "1.0.0",

@@ -45,6 +45,7 @@ OUTPUT_BIN  = _SCRIPT_DIR / "output.bin"
 # ---------------------------------------------------------------------------
 CONFIG_FILE = _SCRIPT_DIR / "bt_example.json"
 _customer_id = 12345  # default fallback
+_group_id = 0  # default fallback -- ungrouped
 
 try:
     with open(CONFIG_FILE) as f:
@@ -53,6 +54,7 @@ try:
         if _customer_id == 12345:
             log.warning("customer_id not set in config file %s", CONFIG_FILE)
             sys.exit(1)
+        _group_id = config_data.get("group_id", 0)
 except Exception as exc:
     log.warning("Could not load config from %s: %s. Using default customer_id.", CONFIG_FILE, exc)
 # ---------------------------------------------------------------------------
@@ -79,6 +81,7 @@ MQTT_CFG = MqttConfig(
     cert_file=_SCRIPT_DIR / "certificate.pem.crt",
     key_file=_SCRIPT_DIR / "private.pem.key",
     customer_id=_customer_id,
+    group_id=_group_id,
     token_timeout=15.0,
 )
 
@@ -257,8 +260,8 @@ async def _config_listener_coro(device_info: DeviceInfo, session: "BleSession") 
                  log_config.log_modules, log_config.timeout_seconds)
         asyncio.run_coroutine_threadsafe(_send_config_to_device(session, log_config), loop)
 
-    log.info("MQTT log-config listener started — topic: config/v0/%s/%s/%s",
-             MQTT_CFG.customer_id, device_info.application_id, device_info.device_serial)
+    log.info("MQTT log-config listener started — topic: config/v0/%s/%s/%s/%s",
+             MQTT_CFG.customer_id, MQTT_CFG.group_id, device_info.application_id, device_info.device_serial)
     try:
         await loop.run_in_executor(
             None,
