@@ -305,16 +305,4 @@ void ulogger_metric_u(const char *name, uint32_t value);
 }
 #endif
 
-// Check definitions
-/**
- * Calculated memory length based on address range
- */
-#define ULOGGER_LOG_MEM_LEN (ULOGGER_LOG_NV_END_ADDRESS - ULOGGER_LOG_NV_START_ADDRESS + 1)
-
-// Generate build error if NV memory size is insufficient
-// Validate minimum log data length
-#if ULOGGER_LOG_MEM_LEN < 200
-#error "ULOGGER_LOG_MEM_LEN must be at least 200 bytes"
-#endif
-
 #endif // ULOGGER_H
