@@ -1,5 +1,5 @@
-#ifndef _MEM_H_
-#define _MEM_H_
+#ifndef _ULOGGER_MEM_H_
+#define _ULOGGER_MEM_H_
 
 /**
  * @file ulogger_mem.h
@@ -32,8 +32,9 @@ extern "C" {
 typedef enum {
   ULOGGER_MEM_TYPE_DEBUG_LOG = 0,  /**< Memory region for debug log storage */
   ULOGGER_MEM_TYPE_STACK_TRACE,    /**< Memory region for stack trace/crash dump storage */
+  ULOGGER_MEM_TYPE_OTA_PATCH,      /**< Memory region for OTA patch storage */
   ULOGGER_MEM_TYPE_END             /**< Sentinel value for memory type bounds checking */
-} mem_type_t;
+} ulogger_mem_type_t;
 
 // ============================================================================
 // Memory Driver Interface
@@ -49,21 +50,21 @@ typedef struct {
   bool (*read)(uint32_t address, uint8_t *data, uint32_t len);      /**< Read data from memory */
   bool (*write)(uint32_t address, const uint8_t *data, uint32_t len); /**< Write data to memory */
   bool (*erase)(uint32_t address, uint32_t len);                     /**< Erase memory region */
-} mem_drv_t;
+} ulogger_mem_drv_t;
 
 /**
  * @brief Memory control block structure
  *
  * Defines a memory region associated with a specific memory type and driver.
- * An array of these blocks is passed to Mem_init() to configure the memory
+ * An array of these blocks is passed to ulogger_mem_init() to configure the memory
  * subsystem.
  */
 typedef struct {
-  mem_type_t type;         /**< Type of data stored in this memory region */
+  ulogger_mem_type_t type;         /**< Type of data stored in this memory region */
   uint32_t start_addr;     /**< Starting address of memory region */
   uint32_t end_addr;       /**< Ending address of memory region (inclusive) */
-  const mem_drv_t *mem_drv; /**< Pointer to memory driver implementation */
-} mem_ctl_block_t;
+  const ulogger_mem_drv_t *mem_drv; /**< Pointer to memory driver implementation */
+} ulogger_mem_ctl_block_t;
 
 // ============================================================================
 // Public API Functions
@@ -78,7 +79,7 @@ typedef struct {
  * other memory functions. It configures the memory regions and drivers for
  * different log types.
  */
-void Mem_init(const mem_ctl_block_t *mcb, uint32_t len);
+void ulogger_mem_init(const ulogger_mem_ctl_block_t *mcb, uint32_t len);
 
 /**
  * @brief Read data from memory
@@ -88,7 +89,7 @@ void Mem_init(const mem_ctl_block_t *mcb, uint32_t len);
  * @param len Number of bytes to read
  * @return true if read succeeded, false otherwise
  */
-bool Mem_read(mem_type_t type, uint32_t offset, uint8_t *buf, uint32_t len);
+bool ulogger_mem_read(ulogger_mem_type_t type, uint32_t offset, uint8_t *buf, uint32_t len);
 
 /**
  * @brief Write data to memory
@@ -98,7 +99,7 @@ bool Mem_read(mem_type_t type, uint32_t offset, uint8_t *buf, uint32_t len);
  * @param len Number of bytes to write
  * @return true if write succeeded, false otherwise
  */
-bool Mem_write(mem_type_t type, uint32_t offset, uint8_t *buf, uint32_t len);
+bool ulogger_mem_write(ulogger_mem_type_t type, uint32_t offset, uint8_t *buf, uint32_t len);
 
 /**
  * @brief Erase a region of memory
@@ -110,7 +111,7 @@ bool Mem_write(mem_type_t type, uint32_t offset, uint8_t *buf, uint32_t len);
  * @note The erase operation may be device-specific (e.g., flash requires
  *       sector/block erase). Consult your memory driver implementation.
  */
-bool Mem_erase(mem_type_t type, uint32_t offset, uint32_t len);
+bool ulogger_mem_erase(ulogger_mem_type_t type, uint32_t offset, uint32_t len);
 
 /**
  * @brief Erase entire memory region for a given type
@@ -120,10 +121,17 @@ bool Mem_erase(mem_type_t type, uint32_t offset, uint32_t len);
  * This is a convenience function that erases the entire memory region
  * associated with the specified memory type.
  */
-bool Mem_erase_all(mem_type_t type);
+bool ulogger_mem_erase_all(ulogger_mem_type_t type);
+
+/**
+ * @brief Get the total size of a memory region
+ * @param type Memory type to query
+ * @return Size in bytes of the region, or 0 if the type is not configured
+ */
+uint32_t ulogger_mem_get_size(ulogger_mem_type_t type);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // _MEM_H_
+#endif  // _ULOGGER_MEM_H_

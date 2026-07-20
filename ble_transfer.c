@@ -221,7 +221,7 @@ static void send_next_cd_chunk(void) {
     cd_transfer_in_progress = false;
     cd_transfer_offset      = 0;
     ulogger_clear_nv_logs();
-    Mem_erase_all(ULOGGER_MEM_TYPE_STACK_TRACE);
+    ulogger_mem_erase_all(ULOGGER_MEM_TYPE_STACK_TRACE);
     log_local("cd xfer done, both regions cleared");
     return;
   }
@@ -237,7 +237,7 @@ static void send_next_cd_chunk(void) {
   pkt[2] = (uint8_t)(cd_transfer_total_len & 0xFFu);
   pkt[3] = (uint8_t)(cd_transfer_total_len >> 8u);
 
-  bool ok = Mem_read(ULOGGER_MEM_TYPE_STACK_TRACE,
+  bool ok = ulogger_mem_read(ULOGGER_MEM_TYPE_STACK_TRACE,
                      cd_transfer_offset,
                      pkt + BLE_CHUNK_HEADER,
                      chunk_len);

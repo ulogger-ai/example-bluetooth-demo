@@ -78,14 +78,14 @@ static uint8_t advertising_set_handle = 0xff;
 extern uint8_t __StackTop;
 static const uint8_t *LINKER_STACK_TOP = (uint8_t *)&__StackTop;
 
-static const mem_drv_t nv_log_mem_driver = {
+static const ulogger_mem_drv_t nv_log_mem_driver = {
     .read = ulogger_nv_mem_read,
     .write = ulogger_nv_mem_write,
     .erase = ulogger_nv_mem_erase,
 };
 
 // Memory control blocks for ulogger
-static mem_ctl_block_t ulogger_mem_ctl_blocks[] = {
+static ulogger_mem_ctl_block_t ulogger_mem_ctl_blocks[] = {
     {
         .type = ULOGGER_MEM_TYPE_DEBUG_LOG,
         .start_addr = ULOGGER_LOG_NV_START_ADDRESS,
@@ -161,7 +161,9 @@ SL_WEAK void app_init(void)
            address.addr[5], address.addr[4], address.addr[3],
            address.addr[2], address.addr[1], address.addr[0]);
   config.device_serial = (const char *)&device_serial;
-  ulogger_init(&config);
+  if (!ulogger_init(&config)) {
+    log_local("ulogger_init failed\r\n");
+  }
 
   // Snapshot defaults before any cloud config can override them
   saved_default_flags_level = config.flags_level;
