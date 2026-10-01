@@ -2,6 +2,8 @@
 
 This example demonstrates how to integrate uLogger into a Bluetooth Low Energy (BLE) application running on a Silicon Labs EFR32 device. The embedded firmware logs binary debug data over BLE, and a companion Python script (`bluetooth.py`) receives the log, then publishes it to the uLogger cloud platform.
 
+The uLogger agent is vendored into this project: the headers in `include/` and the static library in `lib/` are copied from the [embedded_agent](https://github.com/ulogger-ai/embedded_agent) distribution. The pinned version is in `include/ulogger_version.h` — currently **v1.2.6**.
+
 ## Prerequisites
 
 - [Simplicity Studio 5](https://www.silabs.com/developers/simplicity-studio) with the Gecko SDK installed
@@ -122,6 +124,57 @@ python bluetooth.py
 
 ## 8. Generate Logs
 Follow the log instructions that are displayed via the debug output in the console ITM channel. You can generate logs and a hard fault by pressing BUTTON0.
+
+## How this example uses uLogger
+
+This section is not part of the setup walkthrough — it describes what the demo code does, and what to change when you adapt it to your own hardware. For the full integration guide see the [embedded_agent README](https://github.com/ulogger-ai/embedded_agent).
+
+### The log transfer cycle
+
+`ble_transfer.c` follows a **seal → read → consume** cycle:
+
+1. `ulogger_flush_pretrigger_to_nv()` pushes the pretrigger buffer into NV, then `ulogger_seal_nv_logs_for_transfer()` freezes the current NV contents and returns the size of that snapshot.
+2. The snapshot is sent in chunks over the `log_data` GATT characteristic. Each notification is a 4-byte header — 16-bit offset, 16-bit total length — followed by up to 16 payload bytes, and the host ACKs each one.
+3. When the host has ACKed everything, `ulogger_consume_nv_logs()` discards the snapshot.
+
+The last step uses `ulogger_consume_nv_logs()` rather than `ulogger_clear_nv_logs()` deliberately. Clearing erases the whole region, which would destroy any log written *while the transfer was in flight*; consuming discards only the sealed snapshot, and flash is erased lazily as the region drains.
+
+> **Duplicates after a reset.** The consume position lives in RAM, so a reset re-offers everything still physically present in the NV region — including entries already delivered but not yet erased. Expect duplicates of up to a region's worth of entries after a reset. This is the deliberate trade for not losing entries written during a transfer. Note that tick values cannot be used to de-duplicate, because the tick counter restarts at 0 on reset.
+
+### Non-volatile storage layout
+
+The regions are declared in `include/ulogger_config.h` and wired up in `app.c`:
+
+| Region | Start | Size | Purpose |
+|---|---|---|---|
+| `ULOGGER_MEM_TYPE_DEBUG_LOG` | `0x62000` | 16 KB (2 flash pages) | Binary logs |
+| `ULOGGER_MEM_TYPE_STACK_TRACE` | `0x66000` | 96 KB (12 flash pages) | Crash dumps |
+
+Two things matter when you move these to suit your own flash map:
+
+- **`end_addr` is inclusive.** Write it as `start + size - 1`. Getting this wrong makes the two regions overlap by a byte, which lets a log erase reach into the crash dump area.
+- **`erase_granularity` must divide the region.** `app.c` sets it to the EFR32's `FLASH_PAGE_SIZE`, the same constant `ulogger_nv_mem_erase()` in `flash_driver.c` steps by. This lets the library reclaim space a page at a time instead of wiping the whole region. The library only uses the value if `start_addr` *and* the region length are both multiples of it — otherwise it silently falls back to whole-region erases. Call `ulogger_mem_get_erase_granularity()` to see what was actually accepted; it returns 0 when the value was rejected.
+
+### Crash dumps
+
+Crash dumps transfer over a separate `core_dump_data` characteristic using the same chunked protocol. When a dump is pending, the firmware holds the log snapshot and consumes it only after the dump has been sent, because the two regions are adjacent.
+
+`fault_reboot_cb` runs once the dump is captured. As of agent v1.2.5 it takes the crash cause:
+
+```c
+static void fault_reboot(uint8_t cause) {
+    (void)cause;   // one of ULOGGER_CRASH_CAUSE
+    NVIC_SystemReset();
+}
+```
+
+This demo resets the same way for every cause; an application that needs to recover differently from a watchdog bite than from a CPU fault can branch on `cause` here.
+
+### `ulogger_config.h` is yours
+
+`include/ulogger_config.h` holds your module list, application ID and NV addresses. It is **not** shipped by the agent distribution, so updating the vendored library will never overwrite your settings.
+
+---
 
 ## Exploring the web platform
 Now that you have successfully published logs into uLogger Cloud, lets review how to view those.
