@@ -121,9 +121,13 @@ void ble_transfer_timer_tick(void) {
     return;
   }
 
-  // Neither transfer is active — check for new data.
+  // Neither transfer is active — check for new data.  Sealing freezes the
+  // current NV contents as this transfer's payload, so the length reported
+  // here still describes exactly what send_next_chunk() will read.  Frames
+  // logged while the transfer is in flight fall outside the snapshot and
+  // survive the consume at the end.
   ulogger_flush_pretrigger_to_nv();
-  transfer_total_len = ulogger_get_nv_log_usage();
+  transfer_total_len = ulogger_seal_nv_logs_for_transfer();
   log_local("binary log len %d", transfer_total_len);
   log_local("cd log size %d", ulogger_get_core_dump_size());
   if (transfer_total_len > 0) {
@@ -138,8 +142,9 @@ void ble_transfer_timer_tick(void) {
 // ---------------------------------------------------------------------------
 
 static void start_log_transfer(void) {
+  // Seal first — see ble_transfer_timer_tick() for why.
   ulogger_flush_pretrigger_to_nv();
-  transfer_total_len   = ulogger_get_nv_log_usage();
+  transfer_total_len   = ulogger_seal_nv_logs_for_transfer();
   transfer_in_progress = (transfer_total_len > 0);
   transfer_offset      = 0;
   if (transfer_in_progress) {
@@ -165,15 +170,17 @@ static void send_next_chunk(void) {
     if (cd_transfer_total_len > 0) {
       // Schedule the first core-dump chunk via a one-shot timer so that
       // the notification is sent outside this BLE event callback context.
-      // IMPORTANT: Do NOT clear logs yet — the log and core dump NV regions
-      // are adjacent and clearing logs corrupts the core dump data.  Logs
-      // will be cleared after the core dump transfer completes.
+      // IMPORTANT: Do NOT consume the snapshot yet — the log and core dump NV
+      // regions are adjacent, and reclaiming log space can erase into the core
+      // dump.  The snapshot is consumed once the core dump has been sent.
       cd_transfer_in_progress = true;
       cd_transfer_offset      = 0;
       app_timer_start(&cd_kick_timer, 100, cd_kick_callback, NULL, false);
     } else {
-      // No core dump — safe to clear logs now.
-      ulogger_clear_nv_logs();
+      // No core dump — release the sealed snapshot now.  Consume rather than
+      // clear: clearing erases the whole region and would take with it any
+      // frame logged while this transfer was running.
+      ulogger_consume_nv_logs();
     }
     return;
   }
@@ -217,12 +224,13 @@ static void send_next_cd_chunk(void) {
   }
 
   if (cd_transfer_offset >= cd_transfer_total_len) {
-    // Core dump transfer complete — erase both NV regions.
+    // Core dump transfer complete — release the deferred log snapshot and
+    // erase the core dump region.
     cd_transfer_in_progress = false;
     cd_transfer_offset      = 0;
-    ulogger_clear_nv_logs();
+    ulogger_consume_nv_logs();
     ulogger_mem_erase_all(ULOGGER_MEM_TYPE_STACK_TRACE);
-    log_local("cd xfer done, both regions cleared");
+    log_local("cd xfer done, log snapshot consumed, cd region erased");
     return;
   }
 

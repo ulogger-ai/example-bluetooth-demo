@@ -28,6 +28,7 @@
  *
  ******************************************************************************/
 #include "em_common.h"
+#include "em_device.h"   // FLASH_PAGE_SIZE
 #include "app_assert.h"
 #include "sl_bluetooth.h"
 #include "app.h"
@@ -48,7 +49,7 @@ void my_timer_callback(app_timer_t *handle, void *data);
 static void populate_config_characteristic(const bd_addr *address);
 
 const void *get_stack_top(ulogger_stack_type_t stack_type);
-void fault_reboot(void);
+void fault_reboot(uint8_t cause);
 void init_flash(void);
 
 // Timer handle for periodic transfer polling
@@ -85,18 +86,27 @@ static const ulogger_mem_drv_t nv_log_mem_driver = {
 };
 
 // Memory control blocks for ulogger
+// Both regions live in the EFR32's internal flash, so the erasable unit is the
+// same FLASH_PAGE_SIZE that ulogger_nv_mem_erase() already steps by in
+// flash_driver.c.  Declaring it lets the library reclaim space one page at a
+// time instead of erasing the whole region, so a transfer no longer discards
+// entries written while it was in flight.  The library ignores it unless
+// start_addr and the region length are both page multiples -- see the note on
+// the inclusive end addresses in ulogger_config.h.
 static ulogger_mem_ctl_block_t ulogger_mem_ctl_blocks[] = {
     {
         .type = ULOGGER_MEM_TYPE_DEBUG_LOG,
         .start_addr = ULOGGER_LOG_NV_START_ADDRESS,
         .end_addr = ULOGGER_LOG_NV_END_ADDRESS,
-        .mem_drv = &nv_log_mem_driver
+        .mem_drv = &nv_log_mem_driver,
+        .erase_granularity = FLASH_PAGE_SIZE
     },
     {
         .type = ULOGGER_MEM_TYPE_STACK_TRACE,
         .start_addr = ULOGGER_EXCEPTION_NV_START_ADDRESS,
         .end_addr = ULOGGER_EXCEPTION_NV_END_ADDRESS,
-        .mem_drv = &nv_log_mem_driver
+        .mem_drv = &nv_log_mem_driver,
+        .erase_granularity = FLASH_PAGE_SIZE
     }
 };
 
@@ -363,7 +373,12 @@ const void *get_stack_top(ulogger_stack_type_t stack_type) {
   return LINKER_STACK_TOP;
 }
 
-void fault_reboot(void) {
+void fault_reboot(uint8_t cause) {
+  // `cause` is one of ULOGGER_CRASH_CAUSE, passed by the library once the dump
+  // has been written.  An application that needs to recover differently from a
+  // watchdog bite than from a CPU fault can branch on it here; this demo
+  // resets the same way for every cause.
+  (void)cause;
   NVIC_SystemReset();
 }
 

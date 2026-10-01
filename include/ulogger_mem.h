@@ -64,6 +64,25 @@ typedef struct {
   uint32_t start_addr;     /**< Starting address of memory region */
   uint32_t end_addr;       /**< Ending address of memory region (inclusive) */
   const ulogger_mem_drv_t *mem_drv; /**< Pointer to memory driver implementation */
+  /**
+   * @brief Smallest independently erasable unit of this region, in bytes
+   *        (flash page/sector size). Optional.
+   *
+   * Leave 0 (the default for a partial initialiser) if you do not want to state
+   * it: the library then only ever erases the region as a whole, which is the
+   * long-standing behaviour. Supplying it lets the library reclaim space a page
+   * at a time instead, so a log transfer no longer has to discard entries that
+   * were written while it was in flight.
+   *
+   * This is the same constant your driver's erase() already steps by -- e.g.
+   * FLASH_PAGE_SIZE. It is declared per region because regions may live on
+   * different devices (internal flash vs. an external QSPI part).
+   *
+   * The library uses it only if start_addr and the region length are both
+   * multiples of it; otherwise a partial erase could take a neighbouring page
+   * with it, so the whole-region path is used instead.
+   */
+  uint32_t erase_granularity;
 } ulogger_mem_ctl_block_t;
 
 // ============================================================================
@@ -73,11 +92,19 @@ typedef struct {
 /**
  * @brief Initialize the memory subsystem
  * @param mcb Pointer to array of memory control blocks
- * @param len Number of memory control blocks in the array
+ * @param len Size of that array in BYTES -- pass sizeof(the array), not the
+ *            number of elements
  *
  * This function must be called once during initialization before using any
  * other memory functions. It configures the memory regions and drivers for
  * different log types.
+ *
+ * @note len must be a whole multiple of sizeof(ulogger_mem_ctl_block_t). If it
+ *       is not -- an element count was passed, or the caller was built against a
+ *       different definition of the control block -- the whole array is refused
+ *       and every memory region stays unconfigured. ulogger_init() detects that
+ *       and returns false rather than running on with NV logging switched off.
+ *       Use ulogger_mem_is_configured() to check directly.
  */
 void ulogger_mem_init(const ulogger_mem_ctl_block_t *mcb, uint32_t len);
 
@@ -129,6 +156,25 @@ bool ulogger_mem_erase_all(ulogger_mem_type_t type);
  * @return Size in bytes of the region, or 0 if the type is not configured
  */
 uint32_t ulogger_mem_get_size(ulogger_mem_type_t type);
+
+/**
+ * @brief Erase granularity of a region, in bytes, or 0 if unusable
+ *
+ * Returns the configured erase_granularity when the region is safely
+ * page-aligned for partial erase, and 0 when it is not configured, not
+ * aligned, or no smaller than the region itself.
+ */
+uint32_t ulogger_mem_get_erase_granularity(ulogger_mem_type_t type);
+
+/**
+ * @brief Whether ulogger_mem_init() accepted the control block array
+ * @return true if memory regions are configured, false if the array was refused
+ *         or was never supplied
+ *
+ * Distinguishes "no NV region declared for this type" from "the whole memory
+ * configuration was rejected", which ulogger_mem_get_size() alone cannot.
+ */
+bool ulogger_mem_is_configured(void);
 
 #ifdef __cplusplus
 }
