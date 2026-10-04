@@ -51,9 +51,15 @@
  * application code or other critical data.
  */
 
+ // end_addr is INCLUSIVE, so each region ends one byte below the next.  Writing
+ // (start + size) instead made the log region's last byte 0x66000 -- the first
+ // byte of the exception region -- which is why erasing logs used to take the
+ // core dump with it.  It also left both lengths one byte over a whole number
+ // of flash pages, which blocks the page-wise reclaim enabled by
+ // .erase_granularity in app.c.
  #define ULOGGER_LOG_NV_START_ADDRESS       0x62000
- #define ULOGGER_LOG_NV_END_ADDRESS         (0x62000 + 0x4000)
+ #define ULOGGER_LOG_NV_END_ADDRESS         (0x62000 + 0x4000 - 1)   // 2 pages
  #define ULOGGER_EXCEPTION_NV_START_ADDRESS 0x66000
- #define ULOGGER_EXCEPTION_NV_END_ADDRESS   (0x66000 + 0x18000)
+ #define ULOGGER_EXCEPTION_NV_END_ADDRESS   (0x66000 + 0x18000 - 1)  // 12 pages
 
 #endif // ULOGGER_CONFIG_H
